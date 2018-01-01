@@ -87,7 +87,7 @@ var registerUser = function(enrollmentID, affiliation) {
   return promise;
 }
 
-var getClaims = function(id) {
+var getClaims = function(user, id) {
   var Fabric_Client = require('fabric-client');
   var path = require('path');
   var util = require('util');
@@ -123,13 +123,13 @@ var getClaims = function(id) {
     fabric_client.setCryptoSuite(crypto_suite);
 
     // get the enrolled user from persistence, this user will sign all requests
-    return fabric_client.getUserContext('user1', true);
+    return fabric_client.getUserContext(user, true);
   }).then((user_from_store) => {
     if (user_from_store && user_from_store.isEnrolled()) {
-      console.log('Successfully loaded user1 from persistence');
+      console.log('Successfully loaded ' + user + ' from persistence');
       member_user = user_from_store;
     } else {
-      throw new Error('Failed to get user1.... run registerUser.js');
+      throw new Error('Failed to get ' + user + '.... run registerUser.js');
     }
 
     if (id == undefined) { // queryAllClaims - requires no arguments , ex: args: ['']
@@ -182,7 +182,7 @@ var getClaims = function(id) {
   return promise;
 }
 
-var createClaim = function(servicePerformed, serviceProviderId, employerNo, employeeNo, isClaimable, amountClaimed, amountProcessed) {
+var createClaim = function(servicePerformed, serviceProviderId, employerNo, employeeNo, isClaimable, amountClaimed, amountProcessed, user) {
   var Fabric_Client = require('fabric-client');
   var path = require('path');
   var util = require('util');
@@ -220,13 +220,13 @@ var createClaim = function(servicePerformed, serviceProviderId, employerNo, empl
     fabric_client.setCryptoSuite(crypto_suite);
 
     // get the enrolled user from persistence, this user will sign all requests
-    return fabric_client.getUserContext('user1', true);
+    return fabric_client.getUserContext(user, true);
   }).then((user_from_store) => {
     if (user_from_store && user_from_store.isEnrolled()) {
-      console.log('Successfully loaded user1 from persistence');
+      console.log('Successfully loaded ' + user + ' from persistence');
       member_user = user_from_store;
     } else {
-      throw new Error('Failed to get user1.... run registerUser.js');
+      throw new Error('Failed to get ' + user + '.... run registerUser.js');
     }
 
     // get a transaction id object based on the current user assigned to fabric client
@@ -363,7 +363,7 @@ app.post('/registerUser', function(req, res) {
     res.status(400).send("Missing: affiliation");
   } else {
     registerUser(enrollmentID, affiliation).then((response) => {
-      res.send('User1 was successfully registered and enrolled and is ready to intreact with the fabric network');
+      res.send(enrollment + ' was successfully registered and enrolled and is ready to intreact with the fabric network');
     }).catch((err) => {
       console.error('Failed to register: ' + err);
       if (err.toString().indexOf('Authorization') > -1) {
@@ -377,7 +377,11 @@ app.post('/registerUser', function(req, res) {
 });
 
 app.get('/getClaims', function(req, res) {
-  var claims = getClaims();
+  if(req.query.user === undefined) {
+    res.status(400).send("Please provide the user who will be performing this action");
+  }
+
+  var claims = getClaims(req.query.user);
   claims.then((_claims) => {
     if (!_claims.hasPayloads) {
       res.send("No payloads were returned from query");
@@ -392,7 +396,11 @@ app.get('/getClaims', function(req, res) {
 });
 
 app.get('/getClaim/:id', function(req, res) {
-  var claims = getClaims(req.params.id);
+  if(req.query.user === undefined) {
+    res.status(400).send("Please provide the user who will be performing this action");
+  }
+  
+  var claims = getClaims(req.query.user, req.params.id);
   claims.then((_claims) => {
     if (!_claims.hasPayloads) {
       res.send("No payloads were returned from query");
@@ -407,11 +415,12 @@ app.get('/getClaim/:id', function(req, res) {
 });
 
 app.post('/addClaim', function(req, res) {
-  if (Object.keys(req.body).length != 7) {
+  if (Object.keys(req.body).length != 8) {
     res.status(400).send("Claim does not have all required information.");
     return;
   }
 
+  var user = req.body["user"];
   var servicePerformed = req.body["servicePerformed"];
   var serviceProviderId = req.body["serviceProviderId"];
   var employerNo = req.body["employerNo"];
@@ -420,7 +429,9 @@ app.post('/addClaim', function(req, res) {
   var amountClaimed = req.body["amountClaimed"];
   var amountProcessed = req.body["amountProcessed"];
 
-  if (servicePerformed == undefined) {
+  if (user == undefined) {
+    res.status(400).send("Missing: user");
+  } else if (servicePerformed == undefined) {
     res.status(400).send("Missing: servicePerformed");
   } else if (serviceProviderId == undefined) {
     res.status(400).send("Missing: serviceProviderId");
@@ -435,7 +446,7 @@ app.post('/addClaim', function(req, res) {
   } else if (amountProcessed == undefined) {
     res.status(400).send("Missing: amountProcessed");
   } else {
-    createClaim(servicePerformed, serviceProviderId, employerNo, employeeNo, isClaimable, amountClaimed, amountProcessed).then((response) => {
+    createClaim(servicePerformed, serviceProviderId, employerNo, employeeNo, isClaimable, amountClaimed, amountProcessed, user).then((response) => {
 
       if (response[0].status === 'SUCCESS') {
         res.send("SUCCESS: sent transaction to the orderer");
