@@ -87,6 +87,44 @@ var registerUser = function(enrollmentID, affiliation) {
   return promise;
 }
 
+var canLogin = function(user) {
+  var Fabric_Client = require('fabric-client');
+  var path = require('path');
+
+  var fabric_client = new Fabric_Client();
+
+  var member_user = null;
+  var store_path = path.join(__dirname, 'hfc-key-store');
+  console.log('Store path:' + store_path);
+
+  // create the key value store as defined in the fabric-client/config/default.json 'key-value-store' setting
+  var promise = Fabric_Client.newDefaultKeyValueStore({
+    path: store_path
+  }).then((state_store) => {
+    // assign the store to the fabric client
+    fabric_client.setStateStore(state_store);
+    var crypto_suite = Fabric_Client.newCryptoSuite();
+    // use the same location for the state store (where the users' certificate are kept)
+    // and the crypto store (where the users' keys are kept)
+    var crypto_store = Fabric_Client.newCryptoKeyStore({
+      path: store_path
+    });
+    crypto_suite.setCryptoKeyStore(crypto_store);
+    fabric_client.setCryptoSuite(crypto_suite);
+
+    // get the enrolled user from persistence, this user will sign all requests
+    return fabric_client.getUserContext(user, true);
+  }).then((user_from_store) => {
+    var res = {
+      success: (user_from_store && user_from_store.isEnrolled())
+    }
+
+    return res;
+  });
+
+  return promise;
+}
+
 var getClaims = function(user, id) {
   var Fabric_Client = require('fabric-client');
   var path = require('path');
@@ -399,7 +437,7 @@ app.get('/getClaim/:id', function(req, res) {
   if(req.query.user === undefined) {
     res.status(400).send("Please provide the user who will be performing this action");
   }
-  
+
   var claims = getClaims(req.query.user, req.params.id);
   claims.then((_claims) => {
     if (!_claims.hasPayloads) {
@@ -411,6 +449,18 @@ app.get('/getClaim/:id', function(req, res) {
         res.send(_claims.response.toString());
       }
     }
+  });
+});
+
+app.post('/authenticate', function(req, res) {
+  var user = req.body["username"];
+
+  if(user == undefined) {
+    res.status(400)/send("Missing user information");
+  }
+
+  canLogin(user).then((response) => {
+    res.send(response);
   });
 });
 
